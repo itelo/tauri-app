@@ -33,4 +33,5 @@ jobs:
 
       - name: Build Tauri App
         run: |
+          cd src-tauri
           cargo build --release --target ${{ matrix.target }}

@@ -1,90 +1,36 @@
-name: 'Publish Linux Arm builds'
+name: Build Tauri App for ARM
 
 on:
-  workflow_dispatch:
   push:
     branches:
-      - release
+      - main
+  workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-
+  build-arm:
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [aarch64]
-        include:
-          - arch: aarch64
-            cpu: cortex-a72
-            base_image: https://dietpi.com/downloads/images/DietPi_RPi5-ARMv8-Bookworm.img.xz
-            deb: arm64
-            rpm: aarch64
-            appimage: aarch64
-          # - arch: armv7l
-          #   cpu: cortex-a53
-          #   deb: armhfp
-          #   rpm: arm
-          #   appimage: armhf
-          #   base_image: https://dietpi.com/downloads/images/DietPi_RPi-ARMv7-Bookworm.img.xz
-
+        target:
+          - armv7-unknown-linux-gnueabihf
+          - aarch64-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Cache rust build artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          workspaces: src-tauri
-          cache-on-failure: true
+          targets: ${{ matrix.target }}
 
-      - name: Build app
-        uses: pguyot/arm-runner-action@v2.6.5
-        with:
-          base_image: ${{ matrix.base_image }}
-          cpu: ${{ matrix.cpu }}
-          bind_mount_repository: true
-          image_additional_mb: 10240
-          optimize_image: no
-          #exit_on_fail: no
-          commands: |
-            # Prevent Rust from complaining about $HOME not matching eid home
-            export HOME=/root
+      - name: Install ARM Toolchain
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.target }}" = "armv7-unknown-linux-gnueabihf" ]; then
+            sudo apt-get install -y gcc-arm-linux-gnueabihf
+          elif [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+          fi
 
-            # Workaround to CI worker being stuck on Updating crates.io index
-            export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-
-            # Install setup prerequisites
-            apt-get update -y --allow-releaseinfo-change
-            apt-get autoremove -y
-            apt-get install -y --no-install-recommends --no-install-suggests curl libwebkit2gtk-4.1-dev build-essential libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file
-            curl https://sh.rustup.rs -sSf | sh -s -- -y
-            . "$HOME/.cargo/env"
-            curl -fsSL https://deb.nodesource.com/setup_lts.x | bash
-            apt-get install -y nodejs
-
-            # Install frontend dependencies
-            npm install
-
-            # Build the application
-            npm run tauri build -- --verbose
-
-      - name: Get app version
-        run: echo "APP_VERSION=$(jq -r .version src-tauri/tauri.conf.json)" >> $GITHUB_ENV
-
-      # TODO: Combine this with the basic workflow and upload the files to the Release.
-      - name: Upload deb bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: Debian Bundle
-          path: ${{ github.workspace }}/src-tauri/target/release/bundle/deb/appname_${{ env.APP_VERSION }}_${{ matrix.deb }}.deb
-
-      # - name: Upload rpm bundle
-      #   uses: actions/upload-artifact@v3
-      #   with:
-      #     name: RPM Bundle
-      #     path: ${{ github.workspace }}/src-tauri/target/release/bundle/rpm/appname-${{ env.APP_VERSION }}-1.${{ matrix.rpm }}.rpm
-
-      # - name: Upload appimage bundle
-      #   uses: actions/upload-artifact@v3
-      #   with:
-      #     name: AppImage Bundle
-      #     path: ${{ github.workspace }}/src-tauri/target/release/bundle/appimage/appname_${{ env.APP_VERSION }}_${{ matrix.appimage }}.AppImage
+      - name: Build Tauri App
+        run: |
+          cargo build --release --target ${{ matrix.target }}
